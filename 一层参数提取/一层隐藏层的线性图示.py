@@ -1,6 +1,15 @@
+import matplotlib.pyplot as plt
+from matplotlib import rcParams
+
+# 设置字体为思源黑体（Noto Sans CJK SC）
+rcParams['font.sans-serif'] = ['WenQuanYi Zen Hei']
+rcParams['axes.unicode_minus'] = False  # 正常显示负号
+
+
 def plot_activation_regions_with_breaks(break_points, grid_size=300):
     import numpy as np
     import matplotlib.pyplot as plt
+    
 
     # 网络参数
     w1 = [0.2, -0.3]; b1 = 0.1
@@ -31,17 +40,17 @@ def plot_activation_regions_with_breaks(break_points, grid_size=300):
     int_patterns = np.vectorize(lambda p: pattern_to_int[p])(patterns)
 
     # 绘图
-    plt.figure(figsize=(8, 8), facecolor='black')
+    plt.figure(figsize=(8, 8), facecolor='white')
     plt.imshow(int_patterns, extent=[-1, 1, -1, 1], origin='lower', cmap='tab10')
 
     # 标注断点（break_points）
-    for pt in break_points:
-        plt.plot(pt[0], pt[1], marker='+', color='white', markersize=10, markeredgewidth=2)
+    #for pt in break_points:
+    #    plt.plot(pt[0], pt[1], marker='+', color='white', markersize=10, markeredgewidth=2)
 
-    plt.title("ReLU 激活分区图", fontsize=16, color='white')
-    plt.xlabel("$x_1$", fontsize=14, color='white')
-    plt.ylabel("$x_2$", fontsize=14, color='white')
-    plt.tick_params(colors='white')
+    plt.title("ReLU 激活分区图", fontsize=16, color='black')
+    plt.xlabel("$x_1$", fontsize=14, color='black')
+    plt.ylabel("$x_2$", fontsize=14, color='black')
+    plt.tick_params(colors='black')
     plt.grid(False)
     plt.show()
 

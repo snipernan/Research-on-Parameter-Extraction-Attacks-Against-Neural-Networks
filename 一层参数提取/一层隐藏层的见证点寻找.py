@@ -1,5 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import rcParams
+
+# 设置字体为思源黑体（Noto Sans CJK SC）
+rcParams['font.sans-serif'] = ['WenQuanYi Zen Hei']
+rcParams['axes.unicode_minus'] = False  # 正常显示负号
 
 # 网络参数
 w1 = [0.2, -0.3]; b1 = 0.1
@@ -42,19 +47,19 @@ def plot_dnn_along_path(u, v, eps=1e-3, num_points=500):
 
     # 绘图
     fig, ax = plt.subplots(figsize=(8, 5))
-    fig.patch.set_facecolor('black')
-    ax.set_facecolor('black')
+    fig.patch.set_facecolor('white')
+    ax.set_facecolor('white')
     
     ax.plot(alphas, outputs, color='orange', lw=1.8)
     for a in breaks_alpha:
-        ax.axvline(x=a, color='white', linestyle='-', linewidth=1)
+        ax.axvline(x=a, color='black', linestyle='-', linewidth=1)
     
-    ax.set_xlabel(r"$\alpha$", fontsize=14, color='white')
-    ax.set_ylabel(r"$f(u(1-\alpha) + v\alpha)$", fontsize=14, color='white')
-    ax.set_title("模型输出与分段位置", fontsize=16, color='white')
-    ax.tick_params(colors='white')
+    ax.set_xlabel(r"$\alpha$", fontsize=14, color='black')
+    ax.set_ylabel(r"$f(u(1-\alpha) + v\alpha)$", fontsize=14, color='black')
+    ax.set_title("模型输出与分段位置", fontsize=16, color='black')
+    ax.tick_params(colors='black')
     for spine in ax.spines.values():
-        spine.set_edgecolor('white')
+        spine.set_edgecolor('black')
     
     plt.grid(False)
     plt.show()
@@ -115,19 +120,19 @@ def plot_dnn_along_path_blackbox(u, v, model, num_points=3000, std_factor=1.5, d
     # 可视化
     if plot:
         fig, ax = plt.subplots(figsize=(8, 5))
-        fig.patch.set_facecolor('black')
-        ax.set_facecolor('black')
+        fig.patch.set_facecolor('white')
+        ax.set_facecolor('white')
 
         ax.plot(alphas, outputs, color='orange', lw=1.8)
         for a in breaks_alpha:
-            ax.axvline(x=a, color='white', linestyle='-', linewidth=1)
+            ax.axvline(x=a, color='black', linestyle='-', linewidth=1)
 
-        ax.set_xlabel(r"$\alpha$", fontsize=14, color='white')
-        ax.set_ylabel(r"$f(u(1-\alpha) + v\alpha)$", fontsize=14, color='white')
-        ax.set_title("模型输出与推测的分段位置", fontsize=16, color='white')
-        ax.tick_params(colors='white')
+        ax.set_xlabel(r"$\alpha$", fontsize=14, color='black')
+        ax.set_ylabel(r"$f(u(1-\alpha) + v\alpha)$", fontsize=14, color='black')
+        ax.set_title("模型输出与推测的分段位置", fontsize=16, color='black')
+        ax.tick_params(colors='black')
         for spine in ax.spines.values():
-            spine.set_edgecolor('white')
+            spine.set_edgecolor('black')
 
         plt.grid(False)
         plt.show()
