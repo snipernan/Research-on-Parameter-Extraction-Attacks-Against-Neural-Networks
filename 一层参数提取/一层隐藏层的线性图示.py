@@ -43,9 +43,9 @@ def plot_activation_regions_with_breaks(break_points, grid_size=300):
     plt.figure(figsize=(8, 8), facecolor='white')
     plt.imshow(int_patterns, extent=[-1, 1, -1, 1], origin='lower', cmap='tab10')
 
-    # 标注断点（break_points）
-    #for pt in break_points:
-    #    plt.plot(pt[0], pt[1], marker='+', color='white', markersize=10, markeredgewidth=2)
+     #标注断点（break_points）
+    for pt in break_points:
+        plt.plot(pt[0], pt[1], marker='+', color='white', markersize=10, markeredgewidth=2)
 
     plt.title("ReLU 激活分区图", fontsize=16, color='black')
     plt.xlabel("$x_1$", fontsize=14, color='black')
