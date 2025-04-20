@@ -1,5 +1,7 @@
 import numpy as np
 from sklearn.linear_model import LinearRegression
+from collections import defaultdict
+
 # 1. 定义黑盒模型 f
 def relu(z):
     return max(0, z)
@@ -40,128 +42,96 @@ w6 = [0.7, 0.3, -0.2]; b6 = -0.3
 # 输出层参数（第二隐藏层 -> 输出）
 wo = [0.7, -0.5, 0.2]; bo = 0.1
 
-def deduplicate_breakpoints_by_projection(break_points, u, v, eps=1e-2):
-    """
-    对 breakpoints 沿路径方向进行投影，然后根据投影值合并相近的点
-    """
-    direction = v - u
-    direction = direction / np.linalg.norm(direction)  # 单位向量
+import numpy as np
+import matplotlib.pyplot as plt
 
-    projections = np.array([np.dot(p - u, direction) for p in break_points])
-    sorted_idx = np.argsort(projections)
-    break_points = break_points[sorted_idx]
-    projections = projections[sorted_idx]
+# ========= 神经网络模型定义 =========
+def relu(z):
+    return max(0, z)
 
-    # 合并相近投影点
-    merged = []
-    current_group = [break_points[0]]
-    for i in range(1, len(break_points)):
-        if abs(projections[i] - projections[i - 1]) < eps:
-            current_group.append(break_points[i])
+def dnn_2_3_3_1(x, y):
+    w1 = [0.2, -0.3]; b1 = 0.1
+    w2 = [0.4, 0.5];  b2 = -0.2
+    w3 = [-0.6, 0.1]; b3 = 0.3
+
+    w4 = [0.3, -0.5, 0.2]; b4 = -0.1
+    w5 = [-0.4, 0.1, 0.6]; b5 = 0.2
+    w6 = [0.7, 0.3, -0.2]; b6 = -0.3
+
+    wo = [0.7, -0.5, 0.2]; bo = 0.1
+
+    z1 = w1[0]*x + w1[1]*y + b1
+    z2 = w2[0]*x + w2[1]*y + b2
+    z3 = w3[0]*x + w3[1]*y + b3
+    a1 = relu(z1)
+    a2 = relu(z2)
+    a3 = relu(z3)
+
+    z4 = w4[0]*a1 + w4[1]*a2 + w4[2]*a3 + b4
+    z5 = w5[0]*a1 + w5[1]*a2 + w5[2]*a3 + b5
+    z6 = w6[0]*a1 + w6[1]*a2 + w6[2]*a3 + b6
+    a4 = relu(z4)
+    a5 = relu(z5)
+    a6 = relu(z6)
+
+    output = wo[0]*a4 + wo[1]*a5 + wo[2]*a6 + bo
+    return output
+
+# ========= 断点搜索方法（简洁版 do_better_sweep） =========
+def do_better_sweep_blackbox(model, u, v, low=0.0, high=1.0, tol=1e-6):
+    """ 沿路径 u -> v 搜索激活断点 """
+    critical_points = []
+
+    def f(alpha):
+        point = (1 - alpha) * u + alpha * v
+        return model(*point)
+
+    def search(low, high):
+        mid = (low + high) / 2
+        f_low, f_high, f_mid = f(low), f(high), f(mid)
+        lin_interp = (f_low + f_high) / 2
+
+        if abs(f_mid - lin_interp) < 1e-7 or high - low < tol:
+            return
         else:
-            merged.append(np.mean(current_group, axis=0))
-            current_group = [break_points[i]]
-    if current_group:
-        merged.append(np.mean(current_group, axis=0))
+            # 断点判定成功，记录点
+            alpha_crit = mid
+            critical_point = (1 - alpha_crit) * u + alpha_crit * v
+            critical_points.append(critical_point)
+            return  # 不再递归，避免重复记录
 
-    return np.array(merged)
+    # 扫描细分区间，适应多个断点
+    N = 4096
+    alphas = np.linspace(low, high, N + 1)
+    for i in range(N):
+        search(alphas[i], alphas[i+1])
 
+    return np.array(critical_points)
 
-def dnn_along_path_blackbox(u, v, model, num_points=100000, std_factor=1.5, dedup_eps=1e-3, plot=True):
-    
-    # 生成路径上的点
-    alphas = np.linspace(0, 1, num_points)
-    points = np.array([u * (1 - a) + v * a for a in alphas])
-    outputs = np.array([model(x[0], x[1]) for x in points])
-
-    # 计算梯度和导数差异
-    grads = np.gradient(outputs, alphas)
-    grad_diff = np.abs(np.diff(grads))
-
-    # 自适应阈值
-    threshold = np.std(grad_diff) * std_factor
-    breaks_alpha = alphas[1:][grad_diff > threshold]
-    break_points = np.array([u * (1 - a) + v * a for a in breaks_alpha])
-
-    # 去重：去掉彼此靠得太近的点
-    filtered = []
-    for pt in break_points:
-        if not any(np.linalg.norm(pt - f) < dedup_eps for f in filtered):
-            filtered.append(pt)
-    break_points = np.array(filtered)
-
-    # 输出
-    break_points = deduplicate_breakpoints_by_projection(break_points, u, v, eps=1e-2)
-
-    # refine 每一个 break point（断点），提升精度
-    refined_break_points = []
-    for pt in break_points:
-        # 沿路径前后稍微移动一点，构造一个小区间
-        direction = v - u
-        direction /= np.linalg.norm(direction)
-        delta = 1e-3 * direction
-        x_left = pt - delta
-        x_right = pt + delta
-
-        refined_pt = refine_breakpoint(model, x_left, x_right)
-        refined_break_points.append(refined_pt)
-
-    refined_break_points = np.array(refined_break_points)
-
-    print("\n精修后的断点坐标（高精度）：")
-    for pt in refined_break_points:
-        print(f"({pt[0]:.10f}, {pt[1]:.10f})")
-    return refined_break_points
+# ========= 路径批量运行 =========
+def run_sweep_multiple_paths(model, num_paths=10, input_range=2.0):
+    all_breakpoints = []
 
 
-def refine_breakpoint(model, x_left, x_right, tol=1e-10, max_iter=100):
-    """
-    在 [x_left, x_right] 区间中对断点精细定位，使误差 < tol
-    """
-    for _ in range(max_iter):
-        x_mid = (x_left + x_right) / 2
-        y_left = model(*x_left)
-        y_mid = model(*x_mid)
-        
-        if np.abs(np.linalg.norm(x_right - x_left)) < tol:
-            return x_mid
+    # 随机生成路径
 
-        # 用一阶差值检查是否过了分段
-        grad_left = (y_mid - y_left) / np.linalg.norm(x_mid - x_left)
-
-        if abs(grad_left) > 1e-6:  # 激活了
-            x_right = x_mid
-        else:
-            x_left = x_mid
-
-    return x_mid
-
-# 你已有的模型定义、ReLU、dnn_2_3_3_1、refine_breakpoint 等函数保持不变...
-
-def run_multiple_paths(model, num_paths=7, input_range=2.0):
-    all_break_points = []
-    np.random.seed(42)  # 设置随机种子为 42
     for i in range(num_paths):
-        np.random.seed(42+i)  # 设置随机种子
-        u = np.random.uniform(-input_range, input_range, size=2)
-        v = np.random.uniform(-input_range, input_range, size=2)
+        np.random.seed(i*2)  # 随机种子
+        u = np.random.uniform(-input_range, input_range, 2)
+        v = np.random.uniform(-input_range, input_range, 2)
+        print(f"\n路径 {i + 1}:")
+        breakpoints = do_better_sweep_blackbox(model, u, v)
 
-        print(f"\n路径 {i + 1}: u = {u}, v = {v}")
+        for pt in breakpoints:
+            print(f"  断点坐标: ({pt[0]:.8f}, {pt[1]:.8f})")
 
-        break_pts = dnn_along_path_blackbox(u, v, model, plot=False)
-        all_break_points.append(break_pts)
+        all_breakpoints.extend(breakpoints)
 
-    all_break_points = np.vstack(all_break_points)
-    print("\n==============================")
-    print("所有路径上的精修断点汇总：")
-    for pt in all_break_points:
-        print(f"({pt[0]:.10f}, {pt[1]:.10f})")
-    print(f"\n共计断点数量：{len(all_break_points)}")
-    return all_break_points
+    print(f"\n共找到断点总数: {len(all_breakpoints)}")
+    return np.array(all_breakpoints)
 
 
-# 调用执行
-witnesses = run_multiple_paths(dnn_2_3_3_1)
+witnesses = run_sweep_multiple_paths(dnn_2_3_3_1)
 
 # 3. 差分参数
 epsilon = 1e-3   # 用于穿过激活边界
@@ -291,6 +261,42 @@ print("\n恢复的权重方向（未筛选）：")
 for i, w in enumerate(recovered_ws):
     print(f"神经元 {i + 1}: {w}")
 
+def filter_repeated_directions(recovered_ws, min_count=2, decimals=6):
+    def normalize_direction(w):
+        norm = np.linalg.norm(w)
+        if norm == 0:
+            return (0.0, 0.0)
+        unit = w / norm
+        # 将方向归一化为统一半球
+        if unit[0] < 0 or (unit[0] == 0 and unit[1] < 0):
+            unit = -unit
+        return tuple(np.round(unit, decimals=decimals))
+
+    direction_counts = defaultdict(list)
+    for idx, w in enumerate(recovered_ws):
+        dir_key = normalize_direction(w)
+        direction_counts[dir_key].append(idx)
+
+    results = []
+    witnesses_1=[]
+    print(f"\n出现超过 {min_count - 1} 次的权重方向（忽略符号）：")
+    for direction, indices in direction_counts.items():
+        if len(indices) >= min_count:
+            print(f"方向 {direction}")
+            results.append(direction)
+            witnesses_1.append(witnesses[indices[0]])
+            print(f"  对应的 witness: {witnesses[indices[0]]}")
+    return results, witnesses_1
+
+filtered_directions,witnesses = filter_repeated_directions(recovered_ws, min_count=3)
+w_dir=np.array(filtered_directions)
+# 恢复符号
+sign = recover_signs([x_star], w_dir.reshape(1, -1), dnn_2_3_3_1)[0]
+w_dir *= sign  # 恢复符号
+
+print("\n恢复的权重方向（筛选后）：")
+for i, w in enumerate(w_dir):
+    print(f"神经元 {i + 1}: {w}")
 
 
 
