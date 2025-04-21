@@ -290,7 +290,7 @@ for j, x_star in enumerate(witnesses, 1):
     recovered_ws.append(w_dir)
     recovered_bs.append(b)
 
-    '''调试内容
+    #'''调试内容
     # 与真实参数对比
     true_w = true_ws[j - 1]
     true_w_norm = true_w / np.linalg.norm(true_w)
@@ -301,7 +301,7 @@ for j, x_star in enumerate(witnesses, 1):
     print(f"  提取方向 = [{w_dir[0]:.6f}, {w_dir[1]:.6f}], 真实方向 = [{true_w_norm[0]:.6f}, {true_w_norm[1]:.6f}]")
     print(f"  提取偏置 = {b:.6f}, 真实偏置 = {true_b:.6f}")
     print()
-    '''
+    #'''
 
 # 使用 10 个样本来保证稳健性
 X_inputs = np.random.uniform(-1, 1, size=(10, 2))
