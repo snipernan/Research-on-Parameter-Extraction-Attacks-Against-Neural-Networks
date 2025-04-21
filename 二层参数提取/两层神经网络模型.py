@@ -56,7 +56,7 @@ def random_with_sign(original_weights, seed=42, low=0.1, high=1.0):
     return [np.sign(w) * r for w, r in zip(original_weights, rand_vals)]
 
 # 设置随机种子
-seed = 2024
+seed = 2020
 
 # 第一层参数（输入 -> 第一隐藏层）
 w1 = random_with_sign([0.2, -0.3], seed + 1); b1 = np.sign(0.1) * np.random.uniform(0.1, 1.0)
@@ -72,5 +72,5 @@ w6 = random_with_sign([0.7, 0.3, -0.2], seed + 6); b6 = np.sign(-0.3) * np.rando
 wo = random_with_sign([0.7, -0.5, 0.2], seed + 7); bo = np.sign(0.1) * np.random.uniform(0.1, 1.0)
 
 # 测试
-output = dnn_2_3_3_1( 2.41420914, -0.29458409)
+output = dnn_2_3_3_1( -0.010517, 0.287245)
 print("预测结果:", output)
