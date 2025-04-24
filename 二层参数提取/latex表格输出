@@ -1,0 +1,90 @@
+def recover_signs_with_votes(witnesses_list, Z, dnn_fn, epsilon=0.01, alpha0=0.6, real_signs=None):
+    signs = []
+    votes_record = []
+    detail_log = []
+
+    for i, witnesses in enumerate(witnesses_list):
+        z = Z[i]
+        direction = z / np.linalg.norm(z) * epsilon
+
+        t0 = time.time()
+
+        votes = []
+        for x, y in witnesses:
+            x_plus, y_plus = x + direction[0], y + direction[1]
+            x_minus, y_minus = x - direction[0], y - direction[1]
+
+            f0 = dnn_fn(x, y)
+            f_plus = dnn_fn(x_plus, y_plus)
+            f_minus = dnn_fn(x_minus, y_minus)
+
+            delta_plus = abs(f_plus - f0)
+            delta_minus = abs(f_minus - f0)
+
+            vote = +1 if delta_plus > delta_minus else -1
+            votes.append(vote)
+
+        t1 = time.time()
+
+        s_plus = votes.count(+1)
+        s_minus = votes.count(-1)
+        s_total = len(votes)
+        alpha = max(s_plus, s_minus) / s_total
+
+        if s_plus / s_total >= alpha0:
+            sign = +1
+        elif s_minus / s_total >= alpha0:
+            sign = -1
+        else:
+            sign = 0
+
+        signs.append(sign)
+        votes_record.append((s_minus, s_plus, alpha))
+
+        # 可选：记录正确性
+        real_sign = real_signs[i] if real_signs is not None else None
+        correct = (real_sign == sign) if real_sign is not None else None
+
+        detail_log.append({
+            'neuronID': i,
+            'real_sign': real_sign,
+            'predicted_sign': sign,
+            's_minus': s_minus,
+            's_plus': s_plus,
+            'alpha': round(alpha, 2),
+            'correct': correct,
+            't_crit': None,       # 如果你测量了，可以填上
+            't_wiggle': int((t1 - t0) * 1000),  # ms
+            't_total': None       # 如果你有总耗时，可填上
+        })
+
+    return signs, detail_log
+
+def print_latex_table(detail_log, neurons_per_row=16):
+    print(r"\begin{tabular}{|l|c|r@{:}l|c|c|c|c|}")
+    print(r"\hline")
+    print(r"neuronID & real sign & $s_-$ & $s_+$ & $\alpha$ & correct & $t_{\text{crit.}}$ & $t_{\text{wiggle}}$ & $t_{\text{total}}$ \\")
+    print(r"\hline")
+
+for entry in detail_log:
+    neuron_id = f"neuron {entry['neuronID']}"
+    real_sign = '+' if entry['real_sign'] == 1 else '-' if entry['real_sign'] == -1 else '?'
+    s_minus = entry['s_minus']
+    s_plus = entry['s_plus']
+    alpha = f"{entry['alpha']:.2f}"
+    correct = r"\checkmark" if entry['correct'] else (r"\ding{55}" if entry['correct'] is not None else r"?")
+    t_crit = entry['t_crit'] if entry['t_crit'] is not None else "..."
+    t_wiggle = entry['t_wiggle'] if entry['t_wiggle'] is not None else "..."
+    t_total = entry['t_total'] if entry['t_total'] is not None else "..."
+
+    print(f"{neuron_id} & {real_sign} & -{s_minus} & +{s_plus} & {alpha} & {correct} & {t_crit} & {t_wiggle} & {t_total} \\\\")
+
+print(r"\hline")
+print(r"\end{tabular}")
+
+
+
+ground_truth_signs=[+1,+1,-1]
+sign, detail_log = recover_signs_with_votes(witnesses_list, recovered_ws, dnn_2_3_3_1,epsilon=0.01, alpha0=0.6,real_signs=ground_truth_signs)
+
+print_latex_table(detail_log)

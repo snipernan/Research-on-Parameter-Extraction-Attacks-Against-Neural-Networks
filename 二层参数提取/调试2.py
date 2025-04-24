@@ -60,7 +60,7 @@ def random_with_sign(original_weights, seed=42, low=0.1, high=1.0):
     return [np.sign(w) * r for w, r in zip(original_weights, rand_vals)]
 
 # 设置随机种子
-seed = 2021
+seed = 2020
 
 # 第一层参数（输入 -> 第一隐藏层）
 w1 = random_with_sign([0.2, -0.3], seed + 1); b1 = np.sign(0.1) * np.random.uniform(0.1, 1.0)
@@ -102,8 +102,8 @@ def compute_deltas(x_star):
 
 
 
-x1=(1.48883931 ,0.0538262)
-x2=(2.1196486  ,0.85781619)
+x1=(0.09583715 ,-2.59299655)
+x2=(-4.2395366 , -3.30341243)
 
 output1=o_dnn_2_3_3_1(*x1)
 output2=o_dnn_2_3_3_1(*x2)
@@ -113,12 +113,11 @@ output2=o_dnn_2_3_3_1(*x2)
 
 # 归一化权重（无符号）
 w_dir1 = np.array([Δ1, Δ2])
-w_dir1 /= np.linalg.norm(w_dir1)
 
-print("归一化权重1:")
+print("权重1:")
 print(w_dir1)
 
 w_dir2 = np.array([Δ3, Δ4])
-w_dir2 /= np.linalg.norm(w_dir2)
-print("归一化权重2:")
+
+print("权重2:")
 print(w_dir2)
