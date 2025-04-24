@@ -72,5 +72,5 @@ w6 = random_with_sign([0.7, 0.3, -0.2], seed + 6); b6 = np.sign(-0.3) * np.rando
 wo = random_with_sign([0.7, -0.5, 0.2], seed + 7); bo = np.sign(0.1) * np.random.uniform(0.1, 1.0)
 
 # 测试
-output = dnn_2_3_3_1( -0.010517, 0.287245)
+output = dnn_2_3_3_1( -0.55843872,  1.77712195)
 print("预测结果:", output)

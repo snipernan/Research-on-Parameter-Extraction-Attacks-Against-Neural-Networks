@@ -2,6 +2,55 @@
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from collections import defaultdict    
+def matmul(a,b,c,np=np):
+    if c is None:
+        c = np.zeros(1)
+
+    return np.dot(a,b)+c
+
+class KnownT:
+    def __init__(self, A, B):
+        self.A = A
+        self.B = B
+
+    def extend_by(self, a, b):
+        return KnownT(self.A+[a], self.B+[b])
+        
+    def forward(self, x, with_relu=False, np=np):
+        for i,(a,b) in enumerate(zip(self.A,self.B)):
+            x = matmul(x,a,b,np)
+            if (i < len(self.A)-1) or with_relu:
+                x = x*(x>0)
+        return x
+    def forward_at(self, point, d_matrix):
+        if len(self.A) == 0:
+            return d_matrix
+
+        mask_vectors = [layer > 0 for layer in self.get_hidden_layers(point)]
+
+        h_matrix = np.array(d_matrix)
+        for i,(matrix,mask) in enumerate(zip(self.A, mask_vectors)):
+            h_matrix = matmul(h_matrix, matrix, None) * mask
+        
+        return h_matrix
+    def get_hidden_layers(self, x, flat=False, np=np):
+        if len(self.A) == 0: return []
+        region = []
+        for i,(a,b) in enumerate(zip(self.A,self.B)):
+            x = matmul(x,a,b,np=np)
+            region.append(np.copy(x))
+            if i < len(self.A)-1:
+                x = x*(x>0)
+        if flat:
+            region = np.concatenate(region,axis=0)
+        return region
+    def get_polytope(self, x):
+        if len(self.A) == 0: return tuple()
+        h = self.get_hidden_layers(x)
+        h = np.concatenate(h, axis=0)
+        return tuple(np.int32(np.sign(h)))
+
+
 
 # 1. 定义黑盒模型 f
 def relu(z):
@@ -50,8 +99,6 @@ def dnn_2_3_3_1(x, y):
     output = wo[0]*a4 + wo[1]*a5 + wo[2]*a6 + bo
     return output
 
-
-
 def random_with_sign(original_weights, seed=42, low=0.1, high=1.0):
     np.random.seed(seed)
     rand_vals = np.random.uniform(low, high, size=len(original_weights))
@@ -78,6 +125,7 @@ wo = random_with_sign([0.7, -0.5, 0.2], seed + 7); bo = np.sign(0.1) * np.random
 
 recovered_ws= np.array([w1, w2, w3])
 recovered_bs= np.array([b1, b2, b3])
+known_T = KnownT([recovered_ws.T], [recovered_bs])
 
 def get_hidden_output(x):
     z = np.dot(recovered_ws, x) + recovered_bs  
@@ -160,6 +208,7 @@ def filter_witnesses_by_layer2_zeros(witnesses, tol=1e-3):
 witnesses = run_sweep_multiple_paths(dnn_2_3_3_1)
 
 
+
 # %%
 print("=========================================")
 print("模型参数:")
@@ -171,9 +220,91 @@ print(f"             w5 = {w5}, b5 = {b5:.4f}")
 print(f"             w6 = {w6}, b6 = {b6:.4f}")
 print(f"输出层参数: wo = {wo}, bo = {bo:.4f}")
 print("=========================================")
+print("第二层参数(归一):")
+print(f"             w4 = {w4/(w4[0])}, b4 = {b4:.4f}")
+print(f"             w5 = {w5/(w5[0])}, b5 = {b5:.4f}")
+print(f"             w6 = {w6/(w6[0])}, b6 = {b6:.4f}")
 # %%
-filtered_witnesses = filter_witnesses_by_layer2_zeros(witnesses)
+class AcceptableFailure(Exception):
+    """
+    Sometimes things fail for entirely acceptable reasons (e.g., we haven't
+    queried enough points to have seen all the hyperplanes, or we get stuck
+    in a constant zero region). When that happens we throw an AcceptableFailure
+    because life is tough but we should just back out and try again after
+    making the appropriate correction.
+    """
+    def __init__(self, *args, **kwargs):
+        for k,v in kwargs.items():
+            setattr(self, k, v)
 
+
+MASK = np.array([1,-1,1,-1])
+
+def dnn_forward1(x):
+    return dnn_2_3_3_1(x[0], x[1])
+
+def get_hidden_output(x):
+    z = np.dot(recovered_ws, x) + recovered_bs  
+    h = np.maximum(0, z)    # ReLU 或 sigmoid(z)
+    return h
+
+def get_second_grad_unsigned(x, direction, eps, eps2):
+    # 计算四个扰动点
+    x_perturbed = np.array([
+        x + direction * (eps - eps2),
+        x + direction * eps,
+        x - direction * (eps - eps2),
+        x - direction * eps
+    ])
+
+    # 使用 dnn_forward1 来处理每个扰动点的输入，计算输出
+    out = np.array([dnn_forward1(xi) for xi in x_perturbed])
+
+    # 计算二阶导数近似（这里加了 MASK 投影）
+    return np.dot(out.flatten(), MASK) / eps
+
+
+def get_ratios_lstsq(critical_points, known_T, eps=1e-6):
+    ratios = []
+    for i,point in enumerate(critical_points):
+        d_matrix = []
+        ys = []
+        for i in range(np.sum(known_T.forward(point) != 0)+2):
+            d = np.random.normal(0,1,point.shape)#生成一个与 point 同形状的高斯随机向量
+            d_matrix.append(d)
+            ratio_val = get_second_grad_unsigned(point, d, eps, eps/3)
+            if len(ys) > 0:
+                both_ratio_val = get_second_grad_unsigned(point, (d+d_matrix[0])/2, eps, eps/3)
+
+                positive_error = abs(abs(ys[0]+ratio_val)/2 - abs(both_ratio_val))
+                negative_error = abs(abs(ys[0]-ratio_val)/2 - abs(both_ratio_val))
+                if positive_error > 1e-4 and negative_error > 1e-4:
+                    print("Probably something is borked")
+                    print("d^2(e(i))+d^2(e(j)) != d^2(e(i)+e(j))", positive_error, negative_error)
+                    raise AcceptableFailure()
+                if negative_error < positive_error:
+                    ratio_val *= -1
+            
+            ys.append(ratio_val)
+
+        d_matrix = np.array(d_matrix)
+
+        h_matrix = np.array(known_T.forward_at(point, d_matrix))
+
+        column_is_zero = np.mean(np.abs(h_matrix)<1e-8,axis=0) > .5
+        assert np.all((known_T.forward(point, with_relu=True) == 0) == column_is_zero)
+
+        soln, *rest = np.linalg.lstsq(np.array(h_matrix, dtype=np.float32),
+                                      np.array(ys, dtype=np.float32), 1e-5)
+    
+        soln[column_is_zero] = np.nan
+
+        ratios.append(soln)
+        
+    return ratios
+
+filtered_witnesses = filter_witnesses_by_layer2_zeros(witnesses)
+#check_zero_neurons(filtered_witnesses)
 
 witnesses_update = []
 for xstar in filtered_witnesses:
@@ -181,62 +312,93 @@ for xstar in filtered_witnesses:
     if all(result):  # 检查三个都非零
         witnesses_update.append(xstar)
 
-def dnn_forward1(x):
-    return dnn_2_3_3_1(x[0], x[1])
+
 
 def compute_weights(x_star, dnn_forward, hidden_layer_output, d_hidden=3, delta=1e-4):
     """
-    恢复第二层权重中一个神经元的权重向量 w（对应 y = h·w）
-    输入：
-        x_star: witness 点，shape = (d_input,)
-        dnn_forward: 神经网络前向函数，输入 shape=(2,) 返回输出标量
-        hidden_layer_output: 返回隐藏层输出向量 h，输入 shape=(2,) 返回 shape=(d_hidden,)
-        d_hidden: 隐藏层维度（即需要恢复的权重维度）
-        delta: 有限差分使用的扰动大小
-    输出：
-        w: 当前神经元的权重向量 shape=(d_hidden,)
+    使用有限差分 + 符号纠正 + 最小二乘恢复第二层单个神经元的权重行向量
     """
     d_input = x_star.shape[0]
-    num_directions = d_hidden + 1  # 至少 d_hidden+1 个扰动方向构成线性方程组
-    delta_vectors = np.random.normal(0, 1.0, size=(num_directions, d_input))  # 方向向量 δ_i
+    num_directions = d_hidden + 1  # 稍微多取几个方向做 least squares 更稳定
+    delta_vectors = np.random.normal(0, 1.0, size=(num_directions, d_input))
+    delta_vectors /= np.linalg.norm(delta_vectors, axis=1, keepdims=True)
 
     h_list = []
     y_list = []
 
     for i in range(num_directions):
         δi = delta_vectors[i]
-        δ1 = delta_vectors[0]
+        δ1 = delta_vectors[0]  # 第一个方向用于与其他方向进行符号校正
 
         # 二阶导数近似 ∂²f / ∂δ1∂δi
-        f_pp = dnn_forward(x_star + δ1 * delta + δi * delta)
-        f_pm = dnn_forward(x_star + δ1 * delta - δi * delta)
-        f_mp = dnn_forward(x_star - δ1 * delta + δi * delta)
-        f_mm = dnn_forward(x_star - δ1 * delta - δi * delta)
+        f_pp = dnn_forward(x_star + delta * δ1 + delta * δi)
+        f_pm = dnn_forward(x_star + delta * δ1 - delta * δi)
+        f_mp = dnn_forward(x_star - delta * δ1 + delta * δi)
+        f_mm = dnn_forward(x_star - delta * δ1 - delta * δi)
 
         y_i = (f_pp - f_pm - f_mp + f_mm) / (4 * delta ** 2)
+
+        if i > 0:
+            # 符号对齐：判断 y_i 应该是正还是负
+            f_mix = dnn_forward(x_star + delta * (δ1 + δi))
+            expected_plus = abs(y_list[0] + y_i) / 2
+            expected_minus = abs(y_list[0] - y_i) / 2
+            mix_val = f_mix - dnn_forward(x_star)
+
+            if abs(expected_minus - abs(mix_val)) < abs(expected_plus - abs(mix_val)):
+                y_i *= -1
+
         y_list.append(y_i)
 
-        h_i = hidden_layer_output(x_star + δi * delta)  # 前 j-1 层输出
+        h_i = hidden_layer_output(x_star + delta * δi)
         h_list.append(h_i)
 
-    # 解线性系统 H·w = y
-    H = np.array(h_list)      # shape=(d_hidden+1, d_hidden)
-    y = np.array(y_list)      # shape=(d_hidden+1,)
-    w, _, _, _ = np.linalg.lstsq(H, y, rcond=None)
+    H = np.array(h_list)  # shape=(num_directions, d_hidden)
+    y = np.array(y_list)  # shape=(num_directions,)
+
+    # 检查某些维度是否恒为 0（ReLU 截断），这些维度无法恢复
+    column_is_zero = np.mean(np.abs(H) < 1e-8, axis=0) > 0.5
+
+    # 最小二乘求解 H·w = y
+    w, *_ = np.linalg.lstsq(H, y, rcond=None)
+
+    # 对于无解维度标 NaN
+    w[column_is_zero] = np.nan
     return w
+
+def normalize_rows_with_nan(matrix):
+    matrix = np.array(matrix, dtype=np.float64)
+    result = np.empty_like(matrix)
+    
+    for i in range(matrix.shape[0]):
+        row = matrix[i]
+        abs_row = np.abs(row)
+        valid = ~np.isnan(abs_row)
+        if not np.any(valid):
+            result[i] = row  # 全是 nan，不动
+            continue
+        
+        scale = np.nanmax(abs_row)
+        if scale < 1e-8:
+            result[i] = row  # 近似为零的行，不动
+        else:
+            result[i] = row / scale
+
+    return result
 
 recovered_w2 = []
 
 for x_star in filtered_witnesses:  # 多个 witness 点恢复多个第二层神经元的权重行向量
-    w_row = compute_weights(
-        x_star=x_star,
-        dnn_forward=dnn_forward1,
-        hidden_layer_output=get_hidden_output,  # 你要实现这个函数
-        d_hidden=3
-    )
+    
+    w_row = get_ratios_lstsq( [x_star],known_T)[0].flatten()
+
+    if np.abs(w_row[0]) > 1e-14:
+        w_row = w_row / w_row[0]
     recovered_w2.append(w_row)
 
+
 recovered_w2 = np.array(recovered_w2)
+recovered_w2 = normalize_rows_with_nan(recovered_w2)
 print("恢复的第二层权重矩阵：")
 print(recovered_w2)
 
@@ -245,59 +407,57 @@ print(recovered_w2)
 import numpy as np
 import networkx as nx
 
-def is_proportional(v1, v2, atol=1e-2):
-    """ 判断两个向量是否成比例 """
-    idx = (v1 != 0) & (v2 != 0)
-    if np.sum(idx) < 2:  # 至少要有两个非零才能判断比例
+def is_proportional_sparse(v1, v2, atol=1e-2):
+    """只在两个向量的非零交集上判断是否成比例"""
+    idx = (np.abs(v1) > 1e-6) & (np.abs(v2) > 1e-6)
+    if np.sum(idx) < 2:
         return False
-
     ratio = v1[idx] / v2[idx]
     return np.allclose(ratio, ratio[0], atol=atol)
 
-def normalize(v):
-    """ 归一化向量，除以其最大值的绝对值 """
-    nonzero = v[np.abs(v) > 1e-8]
+def normalize_sparse(v):
+    """稀疏向量的归一化，只除以最大非零值"""
+    nonzero = v[np.abs(v) > 1e-16]
     if len(nonzero) == 0:
         return v
     scale = nonzero[np.argmax(np.abs(nonzero))]
     return v / scale
 
-def merge_vectors(vectors):
-    """ 合并一组成比例向量（取非零项平均）"""
-    vectors = np.array(vectors)
-    normalized = np.array([normalize(v) for v in vectors])
-    result = np.zeros_like(normalized[0])
-    for i in range(result.shape[0]):
-        nonzeros = normalized[:, i][np.abs(normalized[:, i]) > 1e-8]
-        if len(nonzeros) > 0:
-            result[i] = np.mean(nonzeros)
+def merge_sparse_vectors(vectors):
+    """将一组稀疏、成比例的向量合并为一个完整向量（非零位置平均）"""
+    normalized = np.array([normalize_sparse(v) for v in vectors])
+    dim = normalized[0].shape[0]
+    result = np.zeros(dim)
+    for i in range(dim):
+        values = normalized[:, i][np.abs(normalized[:, i]) > 1e-6]
+        if len(values) > 0:
+            result[i] = np.mean(values)
     return result
 
-# 你的矩阵
-W = np.array(recovered_w2)
+def graph_solve_sparse(vectors):
+    """
+    vectors: List[np.ndarray]，每个都是稀疏向量（部分神经元方向）
+    返回合并后的权重向量集合，每个向量代表一个神经元方向
+    """
+    n = len(vectors)
+    G = nx.Graph()
+    G.add_nodes_from(range(n))
 
-# 构建图
-G = nx.Graph()
-G.add_nodes_from(range(len(W)))
+    for i in range(n):
+        for j in range(i + 1, n):
+            if is_proportional_sparse(vectors[i], vectors[j]):
+                G.add_edge(i, j)
 
-for i in range(len(W)):
-    for j in range(i + 1, len(W)):
-        if is_proportional(W[i], W[j]):
-            G.add_edge(i, j)
+    components = list(nx.connected_components(G))
+    merged = []
+    for comp in components:
+        group = [vectors[i] for i in comp]
+        merged.append(merge_sparse_vectors(group))
 
-# 找到所有连通分量（成比例组）
-components = list(nx.connected_components(G))
+    return np.array(merged)
 
-print(f"找到成比例组的数量: {len(components)}")
 
-# 合并每个组
-merged_weights = []
-for comp in components:
-    group = [W[i] for i in comp]
-    merged = merge_vectors(group)
-    merged_weights.append(merged)
-
-merged_weights = np.array(merged_weights)
-print("合并后的权重矩阵：")
-print(merged_weights)
+merged_w2 = graph_solve_sparse(recovered_w2)
+print("合并后的第二层权重：")
+print(merged_w2)
 # %%
